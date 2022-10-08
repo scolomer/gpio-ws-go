@@ -17,20 +17,26 @@ type Device struct {
 	Value       int    `json:"value"`
 }
 
+type DeviceWs struct {
+	device Device
+	ws     *websocket.Conn
+}
+
 var upgrader = websocket.Upgrader{}
 
-var devicesWs = make(map[int]*websocket.Conn)
+var devicesWs = make(map[int]DeviceWs)
 var devicesWsMutex = &sync.RWMutex{}
-var devices = []Device{}
-var devicesMutex = &sync.RWMutex{}
 
 func setDeviceValue(id int, value int) {
 
 	fmt.Printf("Setting value of device %d to %d", id, value)
 
-	ws := devicesWs[id]
+	devicesWsMutex.RLock()
+	dws := devicesWs[id]
+	devicesWsMutex.RUnlock()
+
 	msg, _ := json.Marshal(map[string]int{"value": value})
-	ws.WriteMessage(websocket.TextMessage, msg)
+	dws.ws.WriteMessage(websocket.TextMessage, msg)
 }
 
 func main() {
@@ -45,6 +51,9 @@ func main() {
 	})
 
 	r.GET("/ws/devices", func(c *gin.Context) {
+
+		fmt.Printf("Incoming connection from %s\n", c.ClientIP())
+
 		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			fmt.Println(err)
@@ -53,35 +62,47 @@ func main() {
 
 		defer ws.Close()
 
+		var msg Device
+
+		defer func() {
+			devicesWsMutex.Lock()
+			delete(devicesWs, msg.Id)
+			devicesWsMutex.Unlock()
+		}()
+
 	loop:
 		for {
 			mt, message, err := ws.ReadMessage()
 			if err != nil {
-				fmt.Println(err)
+				switch err.(type) {
+				case *websocket.CloseError:
+					if msg.Id != 0 {
+						fmt.Printf("Devices %v disconnected\n", msg.Id)
+					} else {
+						fmt.Printf("Client %v disconnected\n", c.ClientIP())
+					}
+				default:
+					fmt.Println(err)
+				}
 				break
 			}
 
 			switch mt {
 			case websocket.TextMessage:
-				var msg Device
 				err = json.Unmarshal(message, &msg)
 				if err != nil {
 					fmt.Println(err)
 					break loop
 				}
 
-				fmt.Printf("Connection received from device %v", msg)
+				fmt.Printf("Device %v connected\n", msg)
 
 				devicesWsMutex.Lock()
-				devicesWs[msg.Id] = ws
+				devicesWs[msg.Id] = DeviceWs{msg, ws}
 				devicesWsMutex.Unlock()
 
-				devicesMutex.Lock()
-				devices = append(devices, msg)
-				devicesMutex.Unlock()
-
 			default:
-				fmt.Printf("Unhandled message type %d", mt)
+				fmt.Printf("Unhandled message type %d\n", mt)
 				break loop
 			}
 		}
