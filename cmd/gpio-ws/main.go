@@ -88,6 +88,7 @@ func handleUiMessage(msg Message) {
 
 func main() {
 	r := gin.Default()
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 
 	r.GET("/rest/device/:id", func(c *gin.Context) {
 		id, _ := strconv.Atoi(c.Param("id"))
@@ -161,7 +162,6 @@ func main() {
 	r.GET("/ws/ui", func(c *gin.Context) {
 		fmt.Printf("/ws/ui : incoming connection from %s\n", c.ClientIP())
 
-		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			fmt.Println(err)
