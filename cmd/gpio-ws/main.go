@@ -118,6 +118,8 @@ func main() {
 			devicesWsMutex.Unlock()
 		}()
 
+		connected := false
+
 	loop:
 		for {
 			mt, message, err := ws.ReadMessage()
@@ -143,7 +145,13 @@ func main() {
 					break loop
 				}
 
+				if connected {
+					// Received a "ping" from the device
+					continue
+				}
+
 				fmt.Printf("Device %v connected\n", msg)
+				connected = true
 
 				devicesWsMutex.Lock()
 				devicesWs[msg.Id] = DeviceWs{&msg, ws}
